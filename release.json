@@ -1,0 +1,8 @@
+{
+  "tag": "v1.4",
+  "title": "v1.4",
+  "package": "il.israel.tv",
+  "replace": true,
+  "files": [{ "name": "israel-tv-tv.apk" }],
+  "notes": "Loading screen on first open, so the TV no longer shows a blank page while channels load."
+}
