@@ -1,0 +1,72 @@
+name: Publish release
+
+# The app's source code is private. A signed APK is pushed to the `release-inbox` branch
+# together with release.json; this workflow checks that it carries the release signature
+# recorded in signing-cert.sha256 on main, and turns it into a tagged GitHub Release.
+on:
+  push:
+    branches: [release-inbox]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the APKs
+        run: |
+          set -euo pipefail
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          git fetch --quiet --depth 1 origin main
+          expected="$(git show FETCH_HEAD:signing-cert.sha256 | tr -d '[:space:]')"
+          package="$(jq -r .package release.json)"
+          jq -r '.files[].name' release.json > files.txt
+          test -s files.txt
+          while read -r apk; do
+            test -f "$apk"
+            "$tools/aapt2" dump badging "$apk" | head -1 | tee badging.txt
+            grep -q "name='${package}'" badging.txt
+            "$tools/apksigner" verify --print-certs "$apk" > certs.txt
+            actual="$(sed -n 's/^.*certificate SHA-256 digest: //p' certs.txt | head -1 | tr -d '[:space:]')"
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::$apk is not signed with the release key (got $actual)."
+              exit 1
+            fi
+          done < files.txt
+      - name: Create the release
+        run: |
+          set -euo pipefail
+          tag="$(jq -r .tag release.json)"
+          assets=()
+          while IFS=$'\t' read -r name stable; do
+            assets+=("$name")
+            if [ -n "$stable" ]; then
+              cp "$name" "$stable"
+              assets+=("$stable")
+            fi
+          done < <(jq -r '.files[] | [.name, (.stable // "")] | @tsv' release.json)
+          sha256sum "${assets[@]}" > SHA256SUMS.txt
+          if gh release view "$tag" > /dev/null 2>&1; then
+            # "replace": true in release.json swaps the files of a release that is already out
+            # (one that went out with a bad file); its title and notes stay as they are.
+            if [ "$(jq -r '.replace // false' release.json)" = "true" ]; then
+              gh release upload "$tag" "${assets[@]}" SHA256SUMS.txt --clobber
+              echo "Replaced the files of https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+            else
+              echo "$tag is already released"
+            fi
+            exit 0
+          fi
+          jq -r .notes release.json > notes.md
+          gh release create "$tag" "${assets[@]}" SHA256SUMS.txt \
+            --target main --title "$(jq -r .title release.json)" --notes-file notes.md --latest
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
