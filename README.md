@@ -14,4 +14,6 @@ On a phone, the easiest way to install it and keep it up to date is [Israel App 
 
 ## How a release gets here
 
-The source code lives in a private repository. A signed APK is pushed to the `release-inbox` branch together with a `release.json`; the *Publish release* workflow checks that it is signed with the key whose fingerprint is in [`signing-cert.sha256`](signing-cert.sha256) and turns it into a tagged release. The link above always points at the newest one.
+The source code lives in a private repository. After each release there, its *Public release* workflow checks that the APK is signed with the key whose fingerprint is in [`signing-cert.sha256`](signing-cert.sha256) and copies it here, so the links above always point at the newest one.
+
+A release can also be handed in by pushing a signed APK and a `release.json` to the `release-inbox` branch; the *Publish release* workflow here makes the same check and creates the release.
